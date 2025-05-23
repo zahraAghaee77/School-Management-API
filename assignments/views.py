@@ -18,7 +18,9 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     serializer_class = AssignmentSerializer
 
     def get_permissions(self):
-        if self.action == "create":
+        if self.action in ["retrieve", "list"]:
+            permission_classes = [CanViewAssignment]
+        elif self.action == "create":
             permission_classes = [IsTeacherOfLesson]
         elif self.action in ["update", "partial_update"]:
             permission_classes = [CanUpdateAssignment]
@@ -39,6 +41,12 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             return Assignment.objects.filter(class_obj__students=user).order_by(
                 "created_at"
             )
+        elif is_in_group(user, "manager"):
+            if hasattr(user, "school_manager"):
+                school = user.school_manager
+                return Assignment.objects.filter(class_obj__school=school)
+        if user.is_staff:
+            return Assignment.objects.all()
 
         return Assignment.objects.none()
 
@@ -128,6 +136,11 @@ class SolutionViewSet(viewsets.ModelViewSet):
     queryset = Solution.objects.all()
     serializer_class = SolutionSerializer
 
+    def get_serializer_class(self):
+        if self.action in ["create", "update", "partial_update"]:
+            return CreateSolutionSerializer
+        return super().get_serializer_class()
+
     def get_queryset(self):
         user = self.request.user
 
@@ -141,6 +154,9 @@ class SolutionViewSet(viewsets.ModelViewSet):
 
         elif is_in_group(user, "student"):
             return Solution.objects.filter(student=user)
+        elif is_in_group(user, "manager") and hasattr(user, "school_manager"):
+            school = user.school_manager
+            return Solution.objects.filter(assignment__class_obj__school=school)
 
         return Solution.objects.none()
 
@@ -156,9 +172,16 @@ class SolutionViewSet(viewsets.ModelViewSet):
         return [permission() for permission in self.permission_classes]
 
     def perform_create(self, serializer):
-        assignment_id = self.kwargs.get("assignment_id")
-        assignment = Assignment.objects.get(id=assignment_id)
-        serializer.save(student=self.request.user, assignment=assignment)
+        user = self.request.user
+
+        if not is_in_group(user, "student"):
+            raise PermissionDenied("Only students can submit solutions.")
+
+        assignment = serializer.validated_data.get("assignment")
+        if not assignment:
+            raise ValidationError({"assignment": "Assignment must be provided."})
+
+        serializer.save(student=user, assignment=assignment)
 
     @swagger_auto_schema(
         operation_summary="Submit a solution to an assignment",
@@ -170,12 +193,12 @@ class SolutionViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
     @swagger_auto_schema(
-        operation_summary="List all solutions for an assignment",
+        operation_summary="List all solutions for an assignment by Teacher",
         operation_description="Teachers can view all student solutions for an assignment.",
         responses={200: SolutionSerializer(many=True)},
     )
     @action(
-        detail=False,
+        detail=True,
         methods=["get"],
         url_path="assignment-solutions",
         url_name="assignment-solutions",

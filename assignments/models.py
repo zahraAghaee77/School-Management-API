@@ -7,16 +7,11 @@ from users.models import User
 class Assignment(models.Model):
     title = models.CharField(max_length=255)
     context = models.TextField(null=True, blank=True)
-    grade = models.DecimalField(
-        max_digits=5, decimal_places=2, null=False, blank=True
-    )  # max grade
+    grade = models.DecimalField(max_digits=5, decimal_places=2, null=False, blank=True)
     deadline = models.DateField()
     created_at = models.DateTimeField(auto_now_add=True)
     last_modified = models.DateTimeField(auto_now=True)
-
     attachment = models.FileField(upload_to="assignments/", null=True, blank=True)
-
-    # Teacher-provided answer/solution
     answer_text = models.TextField(null=True, blank=True)
     answer_file = models.FileField(
         upload_to="assignments/answers/", null=True, blank=True
@@ -40,9 +35,7 @@ class Solution(models.Model):
 
     attachment = models.FileField(upload_to="solutions/", null=True, blank=True)
 
-    grade = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True
-    )  # student grade
+    grade = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
 
     student = models.ForeignKey(
         User, related_name="solutions", on_delete=models.CASCADE

@@ -21,4 +21,4 @@ class News(models.Model):
     )
 
     def __str__(self):
-        return f"{self.title} - {self.content[:30]}"  # Show a preview of content instead of the full text
+        return f"{self.title} - {self.content[:30]}"

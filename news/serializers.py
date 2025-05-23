@@ -35,7 +35,7 @@ class ManagerNewsSerializer(serializers.ModelSerializer):
             "school",
             "school_id",
         ]
-        read_only_fields = ["creator"]
+        read_only_fields = ["creator", "school"]
 
     def validate(self, data):
         school_id = data.pop("school_id", None)

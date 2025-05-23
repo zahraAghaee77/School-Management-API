@@ -56,18 +56,24 @@ class CanUpdateAssignment(BasePermission):
     def has_object_permission(self, request, view, obj):
         return (
             obj.lesson.class_lessons.first().teacher == request.user
-            and obj.deadline > timezone.now()
+            and obj.deadline > timezone.now().date()
         )
 
 
 class CanAddAnswer(BasePermission):
     def has_object_permission(self, request, view, obj):
-        return obj.class_obj.teacher == request.user and obj.deadline < timezone.now()
+        return (
+            obj.class_obj.teacher == request.user
+            and obj.deadline < timezone.now().date()
+        )
 
 
 class CanSubmitOrUpdateSolution(BasePermission):
     def has_object_permission(self, request, view, obj):
-        return obj.student == request.user and obj.assignment.deadline > timezone.now()
+        return (
+            obj.student == request.user
+            and obj.assignment.deadline > timezone.now().date()
+        )
 
 
 class IsTeacherOfAssignment(BasePermission):
@@ -82,10 +88,11 @@ class IsTeacherOfAssignment(BasePermission):
 
 class CanGradeSolution(BasePermission):
     def has_object_permission(self, request, view, obj):
-        return (
-            obj.assignment.class_obj.teacher == request.user
-            and obj.assignment.deadline < timezone.now()
-        )
+        if not obj.assignment or not obj.assignment.class_obj:
+            return False
+        is_teacher = obj.assignment.class_obj.teacher == request.user
+        deadline_passed = obj.assignment.deadline < timezone.now().date()
+        return is_teacher and deadline_passed
 
 
 class CanViewSolution(BasePermission):
@@ -94,6 +101,24 @@ class CanViewSolution(BasePermission):
             return obj.assignment.class_obj.teacher == request.user
         elif is_in_group(request.user, "student"):
             return obj.student == request.user
+        return False
+
+
+class CanViewAssignment(BasePermission):
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+
+        if user.groups.filter(name="teacher").exists():
+            return obj.class_obj.teacher == user
+
+        elif user.groups.filter(name="student").exists():
+            return obj.class_obj.students.filter(id=user.id).exists()
+
+        elif user.groups.filter(name="manager").exists() and hasattr(
+            user, "school_manager"
+        ):
+            return obj.class_obj.school == user.school_manager
+
         return False
 
 
@@ -117,21 +142,10 @@ class IsStudentOfAssignment(BasePermission):
 
 
 class CanUpdateOwnSolution(BasePermission):
-    """
-    Allows students (based on group) to update their own solution,
-    only if the assignment is for a class they belong to.
-    """
-
     def has_object_permission(self, request, view, obj):
         user = request.user
-
-        # Must be in the 'student' group
         if not user.groups.filter(name="student").exists():
             return False
-
-        # Must be their own solution
         if obj.student != user:
             return False
-
-        # Must belong to a class the student is in
         return obj.assignment.class_obj.students.filter(id=user.id).exists()
