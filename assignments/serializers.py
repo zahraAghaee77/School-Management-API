@@ -120,7 +120,6 @@ class SolutionSerializer(serializers.ModelSerializer):
         allow_empty_file=False,
         allow_null=True,
         required=False,
-        validators=[validate_pdf_or_zip],
     )
 
     class Meta:

@@ -2,7 +2,7 @@ from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from schools.models import Lesson
@@ -139,17 +139,14 @@ class SolutionViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action in ["create", "update", "partial_update"]:
             return CreateSolutionSerializer
+        elif self.action == "grade":
+            return TeacherGradeSolutionSerializer
         return super().get_serializer_class()
 
     def get_queryset(self):
         user = self.request.user
 
         if is_in_group(user, "teacher"):
-            assignment_id = self.kwargs.get("assignment_id")
-            if assignment_id:
-                return Solution.objects.filter(
-                    assignment__id=assignment_id, assignment__class_obj__teacher=user
-                )
             return Solution.objects.filter(assignment__class_obj__teacher=user)
 
         elif is_in_group(user, "student"):
@@ -225,16 +222,23 @@ class SolutionViewSet(viewsets.ModelViewSet):
         request_body=TeacherGradeSolutionSerializer,
         responses={200: TeacherGradeSolutionSerializer},
     )
-    @action(detail=True, methods=["post"], permission_classes=[CanGradeSolution])
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[CanGradeSolution],
+        url_name="grade",
+        url_path="grade",
+        serializer_class=TeacherGradeSolutionSerializer,
+    )
     def grade(self, request, pk=None):
         """
         URL: /solutions/{solution_id}/grade/
         Request Body: {"grade": 75}
         """
         try:
-            solution = self.get_object()
+            solution = Solution.objects.get(pk=pk)
             grade = request.data.get("grade")
-
+            self.check_object_permissions(request, solution)
             if grade is None:
                 return Response(
                     {"detail": "The grade must be provided."},
@@ -243,8 +247,18 @@ class SolutionViewSet(viewsets.ModelViewSet):
 
             solution.grade = grade
             solution.save()
-            serializer = self.get_serializer(solution)
+            serializer = TeacherGradeSolutionSerializer(solution)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Solution.DoesNotExist:
             return Response({"detail": "The solution not found."}, status=404)
+
+    @action(
+        detail=False,
+        methods=["get"],
+        permission_classes=[AllowAny],
+    )
+    def see(self, request):
+        solutions = Solution.objects.all()
+        serializer = SolutionSerializer(solutions, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

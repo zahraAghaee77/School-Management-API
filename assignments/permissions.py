@@ -88,8 +88,6 @@ class IsTeacherOfAssignment(BasePermission):
 
 class CanGradeSolution(BasePermission):
     def has_object_permission(self, request, view, obj):
-        if not obj.assignment or not obj.assignment.class_obj:
-            return False
         is_teacher = obj.assignment.class_obj.teacher == request.user
         deadline_passed = obj.assignment.deadline < timezone.now().date()
         return is_teacher and deadline_passed
