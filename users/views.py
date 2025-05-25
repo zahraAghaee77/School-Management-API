@@ -108,14 +108,28 @@ class UserViewSet(viewsets.ModelViewSet):
 
 class UserRegistrationView(APIView):
     def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
+        national_id = request.data.get("national_id")
+        group_name = request.data.get("group")
+
+        try:
+            user = User.objects.get(national_id=national_id)
+            group, _ = Group.objects.get_or_create(name=group_name)
+            user.groups.add(group)
             return Response(
-                {
-                    "data": serializer.data,
-                    "message": "You registered successfully, please wait for admin approval.",
-                },
-                status=status.HTTP_201_CREATED,
+                {"message": "User already exists. Group added."},
+                status=status.HTTP_200_OK,
             )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except User.DoesNotExist:
+            serializer = RegisterSerializer(data=request.data)
+            if serializer.is_valid():
+                user = serializer.save()
+                group, _ = Group.objects.get_or_create(name=group_name)
+                user.groups.add(group)
+                return Response(
+                    {
+                        "data": serializer.data,
+                        "message": "You registered successfully, please wait for admin approval.",
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
