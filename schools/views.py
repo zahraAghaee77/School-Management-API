@@ -1,3 +1,8 @@
+from django.contrib.gis.db.models.functions import Distance
+from django.contrib.gis.geos import Point, fromstr
+from django.contrib.gis.measure import D
+from django.db import connection
+from django.views import generic
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import generics, status, viewsets
@@ -23,6 +28,38 @@ from .serializers import *
   "manager": 1
 }
 """
+
+
+def get_nearby_school(lan, lat, radius):
+    point = Point(lan, lat, srid=4326)
+    radius = radius * 1000
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id, name, manager_id,
+                   ST_AsGeoJSON(location) as geojson,
+                   ST_Distance(location::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) AS distance
+            FROM schools_school
+            WHERE ST_DWithin(location::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, %s)
+            ORDER BY distance ASC
+        """,
+            [lan, lat, lan, lat, radius],
+        )
+        nearbyes = cursor.fetchall()
+
+    sorted_schools = []
+    for row in nearbyes:
+        school = {
+            "id": row[0],
+            "name": row[1],
+            "manager": row[2],
+            "geometry": row[3],
+            "distance_km": round(row[4] / 1000, 2),
+        }
+        sorted_schools.append(school)
+
+    return sorted_schools
 
 
 class SchoolViewSet(viewsets.ModelViewSet):
@@ -192,6 +229,59 @@ class SchoolViewSet(viewsets.ModelViewSet):
             return Response(
                 {"detail": "School not found."}, status=status.HTTP_404_NOT_FOUND
             )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="nearby1",
+        permission_classes=[IsAuthenticated],
+    )
+    def nearby1(self, request):
+        try:
+            lat = float(request.data.get("lat"))
+            lng = float(request.data.get("lng"))
+            user_location = Point(lng, lat, srid=4326)
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "Invalid or missing 'lat'/'lng' in request body."}, status=400
+            )
+
+        radius_km = float(request.data.get("radius", 10))
+        print(radius_km)
+        nearby_schools = (
+            School.objects.annotate(distance=Distance("location", user_location))
+            .filter(location__distance_lte=(user_location, D(km=radius_km)))
+            .order_by("distance")
+        )
+        print("nearby_schools count:", nearby_schools.count())
+        serializer = self.get_serializer(nearby_schools, many=True)
+        features = serializer.data["features"]
+        response_data = []
+
+        for school_obj, feature in zip(nearby_schools, features):
+            feature["properties"]["distance_km"] = round(school_obj.distance.km, 2)
+            response_data.append(feature)
+
+        return Response({"type": "FeatureCollection", "features": response_data})
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="nearby",
+        permission_classes=[IsAuthenticated],
+    )
+    def nearby(self, request):
+        try:
+            lat = float(request.data.get("lat"))
+            lng = float(request.data.get("lng"))
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "Invalid or missing 'lat'/'lng' in request body."}, status=400
+            )
+
+        radius_km = float(request.data.get("radius", 10))
+        sorted_schools = get_nearby_school(lan=lng, lat=lat, radius=radius_km)
+        return Response(sorted_schools)
 
 
 @swagger_auto_schema(

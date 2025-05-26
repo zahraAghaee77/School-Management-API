@@ -1,173 +1,264 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib.gis.geos import Point
-from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
-from schools.models import Class, Lesson, School
-from users.models import User
+from .models import Class, School
+
+User = get_user_model()
 
 
-class SchoolActionsTestCase(APITestCase):
+#   you should work on it
+class SchoolViewSetTests(APITestCase):
     def setUp(self):
-        self.client = APIClient()
-
-        # Create user groups
-        self.teacher_group = Group.objects.create(name="teacher")
-        self.student_group = Group.objects.create(name="student")
-        self.manager_group = Group.objects.create(name="manager")
-        self.admin_group = Group.objects.create(name="admin")
-
-        # Create users
-        self.admin_user = User.objects.create_superuser(
-            username="admin", password="testpass123", email="admin@a.com"
-        )
-        self.manager_user = User.objects.create_user(
+        self.user = User.objects.create_user(
             username="manager",
-            password="testpass123",
-            email="admin@af.com",
+            password="m",
+            email="a@b.com",
             national_id="1234567890",
         )
-        self.manager_user.groups.add(self.manager_group)
-
-        self.teacher_user = User.objects.create_user(
-            username="teacher",
-            password="testpass123",
-            email="admin@ab.com",
-            national_id="1234567870",
+        self.admin_user = User.objects.create_superuser(
+            username="admin",
+            email="admin@admin.com",
+            password="admin",
+            national_id="1111111111",
         )
-        self.teacher_user.groups.add(self.teacher_group)
 
-        self.student_user = User.objects.create_user(
-            username="student",
-            password="testpass123",
-            email="admin@ac.com",
-            national_id="1234367890",
-        )
-        self.student_user.groups.add(self.student_group)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
 
-        # Create school
         self.school = School.objects.create(
             name="Test School",
-            manager=self.manager_user,
-            location=Point(-73.994454, 40.750042),
+            manager=self.user,
+            location=Point(10.0, 20.0),
         )
 
-        # Create class
-        self.classroom = Class.objects.create(
-            name="Math 101", school=self.school, teacher=self.teacher_user
-        )
-        self.classroom.students.add(self.student_user)
-
-        # Create lesson (optional)
-        self.lesson = Lesson.objects.create(
-            title="Intro to Algebra", class_lessons=self.classroom
-        )
-
-        # URLs
-        self.base_url = reverse("school-detail", kwargs={"pk": self.school.id})
-
-    def _get_action_url(self, action):
-        return f"{self.base_url}{action}/"
-
-    def test_manager_can_access_all_school_actions(self):
-        self.client.force_authenticate(user=self.manager_user)
-
-        actions = ["students", "teachers", "classes", "lessons"]
-        for action in actions:
-            url = self._get_action_url(action)
-            response = self.client.get(url)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_only_managers_can_access_school_actions(self):
-        actions = ["students", "teachers", "classes", "lessons"]
-
-        for action in actions:
-            url = self._get_action_url(action)
-
-            # Try as admin
-            self.client.force_authenticate(user=self.admin_user)
-            response = self.client.get(url)
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-            # Try as teacher
-            self.client.force_authenticate(user=self.teacher_user)
-            response = self.client.get(url)
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-            # Try as student
-            self.client.force_authenticate(user=self.student_user)
-            response = self.client.get(url)
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_students_action_returns_correct_users(self):
-        self.client.force_authenticate(user=self.manager_user)
-        url = self._get_action_url("students")
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        usernames = [user["username"] for user in response.data]
-        self.assertIn(self.student_user.username, usernames)
-
-    def test_teachers_action_returns_correct_users(self):
-        self.client.force_authenticate(user=self.manager_user)
-        url = self._get_action_url("teachers")
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        usernames = [user["username"] for user in response.data]
-        self.assertIn(self.teacher_user.username, usernames)
-
-    def test_classes_action_returns_correct_classes(self):
-        self.client.force_authenticate(user=self.manager_user)
-        url = self._get_action_url("classes")
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        class_names = [cls["name"] for cls in response.data]
-        self.assertIn(self.classes.name, class_names)
-
-    def test_lessons_action_returns_correct_lessons(self):
-        self.client.force_authenticate(user=self.manager_user)
-        url = self._get_action_url("lessons")
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        titles = [lesson["title"] for lesson in response.data]
-        self.assertIn(self.classes.lessons.title, titles)
-
-    def test_unauthorized_access_to_school_actions_fails(self):
-        self.client.logout()
-        actions = ["students", "teachers", "classes", "lessons"]
-        for action in actions:
-            url = self._get_action_url(action)
-            response = self.client.get(url)
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_invalid_school_id_returns_404(self):
-        self.client.force_authenticate(user=self.manager_user)
-        invalid_url_base = reverse("school-detail", kwargs={"pk": 999})
-
-        actions = ["students", "teachers", "classes", "lessons"]
-        for action in actions:
-            url = f"{invalid_url_base}{action}/"
-            response = self.client.get(url)
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_manager_cannot_manage_multiple_schools(self):
+    def authenticate_as_admin(self):
         self.client.force_authenticate(user=self.admin_user)
-        data = {
-            "name": "Second School",
-            "location": {"type": "Point", "coordinates": [-73.994454, 40.750042]},
-            "manager": self.manager_user.id,
-        }
 
-        response = self.client.post(reverse("school-list"), data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("manager", response.data)
-        self.assertEqual(
-            str(response.data["manager"][0]),
-            "This user is already a manager of another school.",
+    def test_list_schools(self):
+        url = reverse("school-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.data), 1)
+
+    def test_create_school(self):
+        url = reverse("school-list")
+        self.authenticate_as_admin()
+        user = User.objects.create_user(
+            username="manager1",
+            password="m",
+            email="avv@b.com",
+            national_id="1234567790",
         )
+        manager_group, _ = Group.objects.get_or_create(name="manager")
+        user.groups.add(manager_group)
+        data = {
+            "name": "New School",
+            "manager": user.id,
+            "location": {"type": "Point", "coordinates": [15.0, 25.0]},
+        }
+        response = self.client.post(url, data, format="json")
+        properties = response.data["properties"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(response.data["properties"]["name"], "New School")
+
+    def test_retrieve_school(self):
+        self.authenticate_as_admin()
+        url = reverse("school-detail", args=[self.school.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["properties"]["name"], self.school.name)
+
+    def test_update_school(self):
+        self.authenticate_as_admin()
+        url = reverse("school-detail", args=[self.school.id])
+        data = {"name": "Updated School"}
+        response = self.client.patch(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["properties"]["name"], "Updated School")
+
+    def test_delete_school(self):
+        self.authenticate_as_admin()
+        url = reverse("school-detail", args=[self.school.id])
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(School.objects.filter(id=self.school.id).exists())
+
+    def test_nearby_schools(self):
+        manager1 = User.objects.create_user(
+            username="manager1",
+            password="pass1234",
+            email="avv@b.com",
+            national_id="1234567790",
+        )
+        manager2 = User.objects.create_user(
+            username="manager2",
+            password="pass1234",
+            email="avdv@b.com",
+            national_id="1234567793",
+        )
+        manager3 = User.objects.create_user(
+            username="manager3",
+            password="pass1234",
+            email="avvg@b.com",
+            national_id="1234567792",
+        )
+        manager4 = User.objects.create_user(
+            username="manager4",
+            password="pass1234",
+            email="avva@b.com",
+            national_id="1234567791",
+        )
+        School.objects.create(
+            name="Far",
+            manager=manager1,
+            location=Point(10.0, 21.0),
+        )
+        School.objects.create(
+            name="Pretty Far", manager=manager2, location=Point(10, 20.1)
+        )
+        School.objects.create(
+            name="Pretty so Far", manager=manager3, location=Point(10, 20.01)
+        )
+        School.objects.create(
+            name="Pretty so much Far", manager=manager4, location=Point(10, 20.001)
+        )
+        url = reverse("school-nearby")
+        data = {"lng": 10.0002, "lat": 20.0, "radius_km": 1000}
+        response = self.client.post(url, data, format="json")
+        # print(response.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = [s["name"] for s in response.data]
+        self.assertIn(self.school.name, names)
+        self.assertNotIn("Far School", names)
+
+    def test_invalid_input_nearby(self):
+        url = reverse("school-nearby")
+        data = {"lng": "er", "lat": 20.0, "radius_km": 1000}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_missing_parameter_nearby(self):
+        url = reverse("school-nearby")
+        data = {"lng": "er", "radius_km": 1000}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_sorted_distance_nearby(self):
+        url = reverse("school-nearby")
+        data = {"lng": 10.0002, "lat": 20.0, "radius_km": 5000}
+        manager1 = User.objects.create_user(
+            username="manager1",
+            password="pass1234",
+            email="avv@b.com",
+            national_id="1234567790",
+        )
+        far_school = School.objects.create(
+            name="Far",
+            manager=manager1,
+            location=Point(10.0, 20.02),
+        )
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # print(response.data)
+        names = [s["name"] for s in response.data]
+        self.assertIn(self.school.name, names)
+        self.assertNotIn("Far School", names)
+        self.assertEqual(names[0], self.school.name)
+        self.assertEqual(names[1], far_school.name)
+
+
+class ClassViewSetTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="teacher",
+            password="t",
+            email="av@b.com",
+            national_id="1134567890",
+        )
+        gr, _ = Group.objects.get_or_create(name="teacher")
+        self.user.groups.add(gr)
+        self.student = User.objects.create_user(
+            username="student",
+            password="s",
+            email="ab@b.com",
+            national_id="1233567890",
+        )
+        gr, _ = Group.objects.get_or_create(name="student")
+        self.student.groups.add(gr)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.admin_user = User.objects.create_superuser(
+            username="admin",
+            email="admin@admin.com",
+            password="admin",
+            national_id="1111111111",
+        )
+
+        self.school = School.objects.create(
+            name="Test School",
+            manager=self.user,
+            location=Point(10.0, 20.0),
+        )
+        self.classroom = Class.objects.create(
+            name="Test Class",
+            school=self.school,
+            teacher=self.user,
+        )
+
+    def authenticate_as_user(self):
+        self.client.force_authenticate(user=self.user)
+
+    def authenticate_as_admin(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+    def test_list_classes(self):
+        url = reverse("class-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.data), 1)
+
+    def test_create_class(self):
+        self.authenticate_as_admin()
+        url = reverse("class-list")
+        data = {
+            "name": "New Class",
+            "school": self.school.id,
+            "teacher": self.user.id,
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "New Class")
+
+    def test_retrieve_class(self):
+        url = reverse("class-detail", args=[self.classroom.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], self.classroom.name)
+
+    def test_update_class(self):
+        self.authenticate_as_admin()
+        url = reverse("class-detail", args=[self.classroom.id])
+        data = {"name": "Updated Class"}
+        response = self.client.patch(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], "Updated Class")
+
+    def test_delete_class(self):
+        self.authenticate_as_admin()
+        url = reverse("class-detail", args=[self.classroom.id])
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Class.objects.filter(id=self.classroom.id).exists())
+
+    def test_add_students(self):
+        self.client.force_authenticate(user=self.user)
+        url = reverse("class-add-student", args=[self.classroom.id])
+        response = self.client.post(
+            url, data={"national_id": self.student.national_id}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

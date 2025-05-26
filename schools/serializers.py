@@ -12,7 +12,7 @@ from .models import Class, Lesson, School
 class SchoolSerializer(GeoFeatureModelSerializer):
     class Meta:
         model = School
-        fields = ["id", "name", "manager", "location"]
+        fields = ["id", "name", "manager"]
         geo_field = "location"
 
     def validate_manager(self, value):

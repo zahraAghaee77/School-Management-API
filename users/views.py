@@ -38,6 +38,8 @@ class UserViewSet(viewsets.ModelViewSet):
         detail=True,
         methods=["patch"],
         permission_classes=[IsAdminUser],
+        url_name="activate",
+        url_path="activate",
     )
     def activate(self, request, pk=None):
         user = self.get_object()
